@@ -1,0 +1,139 @@
+{
+    "name": "Krishna Prasanth Sridhar",
+    "email": "krishnasridhar2807@gmail.com",
+    "phone": "+1-312-843-2216",
+    "location": "Chicago, IL, US",
+    "linkedin": "www.linkedin.com/in/krishna-sridhar-ba947a1b0",
+    "github": "https://github.com/krish280700",
+    "portfolio": "https://krishna-portfolio-nu.vercel.app/",
+    "summary": "AI Engineer and agentic-AI enthusiast, transitioning from front-end development to intelligent system design. Builds LLM agents that plan tasks, call real-world tools and APIs, search and reason over knowledge, and execute multi-step workflows. 3+ years of experience in React, Next.js, Angular, and GraphQL with a strong product-engineering background. Currently pursuing an M.S. in IT & Management at the Illinois Institute of Technology, specializing in Web design and application development.",
+    "skills": {
+        "languages": [
+            "HTML5",
+            "CSS3",
+            "JavaScript",
+            "TypeScript",
+            "Python"
+        ],
+        "agentic_and_llm": [
+            "OpenAI SDK",
+            "CrewAI",
+            "LangGraph",
+            "LangChain",
+            "AutoGen",
+            "MCP"
+        ],
+        "ml_and_rag": [
+            "Hugging Face Hub",
+            "Transformers",
+            "Vector Database",
+            "Generative AI",
+            "Retrieval Augmented Generation (RAG)",
+            "Prompt Engineering"
+        ],
+        "frameworks": [
+            "jQuery",
+            "React JS",
+            "Vue JS",
+            "Angular",
+            "Next JS",
+            "SASS",
+            "Tailwind CSS"
+        ],
+        "state_management": [
+            "Redux",
+            "Vuex",
+            "RxJS",
+            "Context API"
+        ],
+        "backend": [
+            "Node.js",
+            "GraphQL",
+            "MongoDB",
+            "MySQL",
+            "FastAPI"
+        ],
+        "automation_tools": [
+            "n8n",
+            "Make",
+            "Zapier"
+        ],
+        "tools_and_deploy": [
+            "Git",
+            "GitHub",
+            "Postman",
+            "MongoDB Atlas",
+            "Azure App Service",
+            "Azure Static Web Apps",
+            "Vercel",
+            "Render"
+        ]
+    },
+    "experience": [
+        {
+            "title": "Front-End Web Developer Intern",
+            "company": "AIFS",
+            "location": "Naperville, Illinois",
+            "start_date": "Jun 2025",
+            "end_date": "Aug 2025",
+            "bullets": [
+                "Built SEO-friendly websites using Astro with best practices for performance and discoverability.",
+                "Developed web applications using Blazor, creating responsive and scalable UIs.",
+                "Set up CI/CD pipelines on Azure App Service to automate deployment and streamline development.",
+                "Collaborated with teams to deliver optimized and production-ready web solutions."
+            ]
+        },
+        {
+            "title": "Front-End Web Developer",
+            "company": "GOWEBEZ",
+            "location": "Chennai, India",
+            "start_date": "Mar 2021",
+            "end_date": "Dec 2023",
+            "bullets": [
+                "Worked on two SaaS platforms in healthcare (Inflowcare) and education (Language Dynamic Groups) domains.",
+                "Modernized a legacy jQuery app into a React.js architecture with Redux and Tailwind CSS.",
+                "Built Vue.js components with Vuex and integrated REST APIs with MongoDB/MySQL for real-time data."
+            ]
+        }
+    ],
+    "education": [
+        {
+            "degree": "MAS, Information Technology & Management (Web Development)",
+            "school": "Illinois Institute of Technology",
+            "location": "Chicago, Illinois",
+            "gpa": "3.83",
+            "start_date": "Jan 2024",
+            "end_date": "Dec 2025"
+        }
+    ],
+    "projects": [
+        {
+            "name": "Multi-Agent Research Assistant",
+            "description": "Multi-agent research assistant with role-based agents and LangGraph orchestration; used Hugging Face models for embeddings/summarization and MCP for standardized tool connections.",
+            "tech": [
+                "CrewAI",
+                "LangGraph",
+                "MCP",
+                "Hugging Face"
+            ]
+        },
+        {
+            "name": "Agentic Personalized Chatbot with Evaluator Agent",
+            "description": "Chatbot using GPT-4o-mini plus a Gemini 2.5 evaluator agent to review responses; enabled tool-calling for dynamic queries via external APIs and knowledge sources.",
+            "tech": [
+                "OpenAI",
+                "Gemini",
+                "Tool-Calling"
+            ]
+        },
+        {
+            "name": "Automation Copilot for SaaS Operations",
+            "description": "Automation copilot that inspects and proposes workflows across platforms, using MCP to standardize tool connections and simulate workflows before deployment.",
+            "tech": [
+                "n8n",
+                "MCP"
+            ]
+        }
+    ],
+    "certifications": []
+}

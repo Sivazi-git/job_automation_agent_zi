@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: Helvetica, Arial, sans-serif;
+            font-size: 11px;
+            color: #222;
+            padding: 30px 40px;
+            line-height: 1.4;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 12px;
+        }
+
+        .header h1 {
+            font-size: 20px;
+            font-weight: bold;
+        }
+
+        .contact {
+            font-size: 10px;
+            color: #444;
+            margin-top: 4px;
+        }
+
+        .section {
+            margin-bottom: 10px;
+        }
+
+        .section-title {
+            font-size: 11px;
+            font-weight: bold;
+            text-transform: uppercase;
+            border-bottom: 1px solid #222;
+            padding-bottom: 2px;
+            margin-bottom: 5px;
+        }
+
+        .job {
+            margin-bottom: 8px;
+        }
+
+        .job-header {
+            margin-bottom: 2px;
+        }
+
+        .job-title {
+            font-weight: bold;
+        }
+
+        .job-dates {
+            float: right;
+            font-size: 10px;
+            color: #555;
+        }
+
+        .job ul {
+            margin-left: 16px;
+        }
+
+        .job ul li {
+            margin-bottom: 2px;
+        }
+
+        .skill-row {
+            margin-bottom: 2px;
+        }
+
+        .skill-label {
+            font-weight: bold;
+        }
+
+        .edu-row {
+            margin-bottom: 2px;
+        }
+
+        .project {
+            margin-bottom: 5px;
+        }
+
+        .project-name {
+            font-weight: bold;
+        }
+
+        .project-tech {
+            color: #555;
+            font-size: 10px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- Header -->
+    <div class="header">
+        <h1>{{ resume.name }}</h1>
+        <div class="contact">
+            {{ resume.email }}
+            <span>|</span>{{ resume.phone }}
+            <span>|</span>{{ resume.location }}
+            {% if resume.linkedin %}<span>|</span>{{ resume.linkedin }}{% endif %}
+            {% if resume.github %}<span>|</span>{{ resume.github }}{% endif %}
+        </div>
+    </div>
+
+    <!-- Summary -->
+    {% if resume.summary %}
+    <div class="section">
+        <div class="section-title">Summary</div>
+        <div class="summary">{{ resume.summary }}</div>
+    </div>
+    {% endif %}
+
+    <!-- Skills -->
+    {% if resume.skills %}
+    <div class="section">
+        <div class="section-title">Skills</div>
+        <div class="skills-grid">
+            {% for category, items in resume.skills.items() %}
+            <div class="skill-row">
+                <span class="skill-label">{{ category | capitalize }}:</span>
+                {{ items | join(', ') }}
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Experience -->
+    {% if resume.experience %}
+    <div class="section">
+        <div class="section-title">Experience</div>
+        {% for job in resume.experience %}
+        <div class="job">
+            <div class="job-header">
+                <div>
+                    <span class="job-title">{{ job.title }}</span>
+                    — <span class="job-company">{{ job.company }}, {{ job.location }}</span>
+                </div>
+                <div class="job-dates">{{ job.start_date }} – {{ job.end_date }}</div>
+            </div>
+            <ul>
+                {% for bullet in job.bullets %}
+                <li>{{ bullet }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <!-- Projects -->
+    {% if resume.projects %}
+    <div class="section">
+        <div class="section-title">Projects</div>
+        {% for project in resume.projects %}
+        <div class="project">
+            <span class="project-name">{{ project.name }}:</span>
+            {{ project.description }}
+            <div class="project-tech">Tech: {{ project.tech | join(', ') }}</div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <!-- Education -->
+    {% if resume.education %}
+    <div class="section">
+        <div class="section-title">Education</div>
+        {% for edu in resume.education %}
+        <div class="edu-row">
+            <div><strong>{{ edu.degree }}</strong> — {{ edu.school }}</div>
+            <div>{{ edu.year }}</div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+</body>
+
+</html>

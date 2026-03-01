@@ -1,6 +1,6 @@
-from sqlalchemy import Column, String, DateTime, Text, Enum
+from sqlalchemy import Column, String, DateTime, Text, Enum, Integer, Float
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 import uuid
 from datetime import datetime
 
@@ -20,6 +20,11 @@ class Job(Base):
     status = Column(String, default="new")  # new, queued, applied, failed, skipped
     posted_at = Column(DateTime)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+    ats_score         = Column(Float, nullable=True)
+    ats_breakdown     = Column(JSONB, nullable=True)
+    ats_matched_keywords  = Column(JSONB, nullable=True)
+    ats_missing_keywords  = Column(JSONB, nullable=True)
 
 class Resume(Base):
     __tablename__ = "resumes"
