@@ -1,0 +1,186 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { useParams, useRouter } from 'next/navigation';
+import { ArrowLeft, ExternalLink, FileText, Calendar } from 'lucide-react';
+import StatusBadge from '@/components/StatusBadge';
+import ATSBreakdown from '@/components/ATSBreakdown';
+import KeywordTags from '@/components/KeywordTags';
+import { fetchJob, type JobDetail } from '@/lib/api';
+
+const sourceColors: Record<string, string> = {
+  linkedin:
+    'bg-blue-900/40 text-blue-300 border border-blue-700/40',
+  indeed:
+    'bg-purple-900/40 text-purple-300 border border-purple-700/40',
+  glassdoor:
+    'bg-emerald-900/40 text-emerald-300 border border-emerald-700/40',
+  zip_recruiter:
+    'bg-orange-900/40 text-orange-300 border border-orange-700/40',
+};
+
+export default function JobDetailPage() {
+  const params = useParams();
+  const router = useRouter();
+  const id = params.id as string;
+
+  const [job, setJob] = useState<JobDetail | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const data = await fetchJob(id);
+        setJob(data);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Failed to load job');
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+  }, [id]);
+
+  if (loading) {
+    return (
+      <div className="p-6 flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-indigo-500" />
+      </div>
+    );
+  }
+
+  if (error || !job) {
+    return (
+      <div className="p-6">
+        <div className="rounded-xl bg-red-900/20 border border-red-800/50 p-5">
+          <p className="text-sm font-semibold text-red-400">Error</p>
+          <p className="text-sm text-red-300/70 mt-1">{error ?? 'Job not found'}</p>
+        </div>
+      </div>
+    );
+  }
+
+  const srcColorClass = job.source
+    ? (sourceColors[job.source.toLowerCase()] ??
+      'bg-slate-700 text-slate-300 border border-slate-600')
+    : null;
+
+  return (
+    <div className="p-6 space-y-5 max-w-4xl">
+      {/* Back button */}
+      <button
+        onClick={() => router.back()}
+        className="flex items-center gap-1.5 text-sm text-slate-400 hover:text-slate-100 transition-colors"
+      >
+        <ArrowLeft className="w-4 h-4" />
+        Back to Jobs
+      </button>
+
+      {/* Header Card */}
+      <div className="bg-slate-800 border border-slate-700 rounded-xl p-6">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          {/* Left: title + meta */}
+          <div className="flex-1 min-w-0">
+            <div className="flex flex-wrap items-center gap-2 mb-2.5">
+              {job.source && srcColorClass && (
+                <span
+                  className={`px-2 py-0.5 text-xs rounded font-medium capitalize ${srcColorClass}`}
+                >
+                  {job.source.replace('_', ' ')}
+                </span>
+              )}
+              <StatusBadge status={job.status} />
+              {job.applied_at && (
+                <span className="flex items-center gap-1 text-xs text-slate-500">
+                  <Calendar className="w-3 h-3" />
+                  Applied {new Date(job.applied_at).toLocaleDateString()}
+                </span>
+              )}
+            </div>
+
+            <h1 className="text-xl font-bold text-slate-100 leading-snug">
+              {job.title}
+            </h1>
+            <p className="text-slate-400 mt-1">
+              {job.company}
+              {job.location && (
+                <span className="text-slate-500"> · {job.location}</span>
+              )}
+            </p>
+            {job.posted_at && (
+              <p className="text-xs text-slate-600 mt-1.5">
+                Posted {new Date(job.posted_at).toLocaleDateString()}
+              </p>
+            )}
+            {job.created_at && (
+              <p className="text-xs text-slate-600 mt-0.5">
+                Scraped {new Date(job.created_at).toLocaleDateString()}
+              </p>
+            )}
+          </div>
+
+          {/* Right: action buttons */}
+          <div className="flex gap-2 shrink-0">
+            {job.resume_url && (
+              <a
+                href={job.resume_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1.5 px-3 py-2 text-sm bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg transition-colors"
+              >
+                <FileText className="w-4 h-4" />
+                Resume
+              </a>
+            )}
+            <a
+              href={job.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 px-3 py-2 text-sm bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg transition-colors font-medium"
+            >
+              <ExternalLink className="w-4 h-4" />
+              View Job
+            </a>
+          </div>
+        </div>
+      </div>
+
+      {/* ATS Analysis */}
+      {job.ats_score != null && (
+        <div className="bg-slate-800 border border-slate-700 rounded-xl p-6">
+          <h2 className="text-base font-semibold text-slate-100 mb-5">
+            ATS Analysis
+          </h2>
+          <ATSBreakdown score={job.ats_score} breakdown={job.ats_breakdown} />
+        </div>
+      )}
+
+      {/* Keywords */}
+      {((job.ats_matched_keywords?.length ?? 0) > 0 ||
+        (job.ats_missing_keywords?.length ?? 0) > 0) && (
+        <div className="bg-slate-800 border border-slate-700 rounded-xl p-6">
+          <h2 className="text-base font-semibold text-slate-100 mb-4">
+            Keywords
+          </h2>
+          <KeywordTags
+            matched={job.ats_matched_keywords ?? []}
+            missing={job.ats_missing_keywords ?? []}
+          />
+        </div>
+      )}
+
+      {/* Job Description */}
+      {job.description && (
+        <div className="bg-slate-800 border border-slate-700 rounded-xl p-6">
+          <h2 className="text-base font-semibold text-slate-100 mb-4">
+            Job Description
+          </h2>
+          <div className="text-sm text-slate-300 leading-relaxed whitespace-pre-wrap max-h-[500px] overflow-y-auto pr-2">
+            {job.description}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
