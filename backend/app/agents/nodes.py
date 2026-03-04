@@ -111,9 +111,17 @@ def load_current_job(state: AgentState) -> AgentState:
         if not existing:
             raw_date  = job.get("date_posted")
             posted_at = raw_date if isinstance(raw_date, datetime) else datetime.utcnow()
+            user_uuid = None
+            try:
+                if state.get("user_id"):
+                    import uuid as _uuid
+                    user_uuid = _uuid.UUID(state["user_id"])
+            except (ValueError, AttributeError):
+                pass
 
             new_job = Job(
                 id          = uuid_lib.uuid4(),
+                user_id     = user_uuid,
                 title       = str(job.get("title", "Unknown")),
                 company     = str(job.get("company", "Unknown")),
                 location    = str(job.get("location", "")),
@@ -163,7 +171,9 @@ def load_current_job(state: AgentState) -> AgentState:
 
 def load_master_resume_node(state: AgentState) -> AgentState:
     try:
-        master = load_master_resume()
+        # Prefer injected user resume data over disk file
+        injected = state.get("master_resume_data")
+        master = injected if injected else load_master_resume()
         return {**state, "master_resume": master, "error": None}
     except Exception as e:
         return {**state, "error": f"load_master_resume failed: {str(e)}", "error_node": "load_master_resume"}
@@ -175,9 +185,13 @@ def score_ats(state: AgentState) -> AgentState:
     Sets ats_passed = True/False for the router to branch on.
     """
     try:
+        master_resume = state.get("master_resume")
+        ats_threshold = state.get("ats_threshold")
         passed, result = passes_ats(
             job_title=state["job_title"],
-            job_description=state["job_description"]
+            job_description=state["job_description"],
+            master_resume=master_resume,
+            threshold=ats_threshold,
         )
 
         print(f"ATS Score: {result['final_score']} for {state['job_title']} at {state['company']} — {'PASS' if passed else 'FAIL'}")
@@ -226,17 +240,24 @@ def save_job_to_db(state: AgentState) -> AgentState:
 
 def filter_job(state: AgentState) -> AgentState:
     """
-    Called when ATS score is below threshold. Marks job as filtered in DB.
+    Called when ATS score is below threshold.
+    - Score < 50: delete the job from DB entirely (too weak to keep).
+    - Score >= 50: mark as skipped so the user can review borderline jobs.
     """
+    score = state["ats_score"]
     db = SessionLocal()
     try:
         job = db.query(Job).filter(Job.id == state["job_id"]).first()
         if job:
-            job.status       = "filtered"
-            job.ats_score    = state["ats_score"]
-            job.ats_breakdown = state["ats_breakdown"]
+            if score < 50:
+                db.delete(job)
+                print(f"Job deleted (score {score} < 50): {state['job_title']} at {state['company']}")
+            else:
+                job.status        = "skipped"
+                job.ats_score     = score
+                job.ats_breakdown = state["ats_breakdown"]
+                print(f"Job filtered (score {score}): {state['job_title']} at {state['company']}")
             db.commit()
-        print(f"Job filtered out: {state['job_title']} at {state['company']} (score: {state['ats_score']})")
         return {**state, "application_status": "filtered", "error": None}
     except Exception as e:
         db.rollback()
@@ -264,7 +285,15 @@ def generate_pdf(state: AgentState) -> AgentState:
 
         db = SessionLocal()
         try:
+            user_uuid = None
+            try:
+                if state.get("user_id"):
+                    import uuid as _uuid2
+                    user_uuid = _uuid2.UUID(state["user_id"])
+            except (ValueError, AttributeError):
+                pass
             resume_record = Resume(
+                user_id          = user_uuid,
                 job_id           = state["job_id"],
                 file_url         = public_url,
                 tailored_content = json.dumps(state["tailored_resume"])

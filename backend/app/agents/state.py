@@ -3,10 +3,15 @@ from typing import TypedDict, Optional
 
 class AgentState(TypedDict):
 
+    # --- User context ---
+    user_id: str                         # UUID string of the running user
+    master_resume_data: Optional[dict]   # injected from user DB record (overrides disk file)
+    ats_threshold: int                   # per-user threshold (default 60)
+
     search_term: str
     location: str
     # --- Job Info ---
-    
+
     job_id: str
     job_title: str
     company: str
@@ -23,10 +28,10 @@ class AgentState(TypedDict):
     # --- Fetched Jobs Batch ---
     fetched_jobs: list[dict]         # raw list from JobSpy
     current_job_index: int           # which job we're processing right now
-    total_jobs: int     
+    total_jobs: int
 
     # --- Resume ---
-    master_resume: dict              # loaded from master_resume.json
+    master_resume: dict              # loaded from master_resume.json or injected
     tailored_resume: dict            # LLM output
     resume_pdf_path: str             # local path after WeasyPrint
     resume_pdf_url: str              # Supabase public URL after upload

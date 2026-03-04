@@ -7,6 +7,7 @@ import StatusBadge from '@/components/StatusBadge';
 import ATSBreakdown from '@/components/ATSBreakdown';
 import KeywordTags from '@/components/KeywordTags';
 import { fetchJob, type JobDetail } from '@/lib/api';
+import JobDescription from '@/components/JobDescription';
 
 const sourceColors: Record<string, string> = {
   linkedin:
@@ -176,8 +177,8 @@ export default function JobDetailPage() {
           <h2 className="text-base font-semibold text-slate-100 mb-4">
             Job Description
           </h2>
-          <div className="text-sm text-slate-300 leading-relaxed whitespace-pre-wrap max-h-[500px] overflow-y-auto pr-2">
-            {job.description}
+          <div className="max-h-[600px] overflow-y-auto pr-2">
+            <JobDescription text={job.description} />
           </div>
         </div>
       )}

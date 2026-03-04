@@ -2,17 +2,20 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, Briefcase, Play, Bot } from 'lucide-react';
+import { LayoutDashboard, Briefcase, Play, Bot, User, LogOut } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/components/AuthProvider';
 
 const navItems = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/jobs', label: 'Jobs', icon: Briefcase },
   { href: '/pipeline', label: 'Pipeline', icon: Play },
+  { href: '/profile', label: 'Profile', icon: User },
 ];
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const { user, logout } = useAuth();
 
   return (
     <aside className="w-56 shrink-0 bg-slate-900 border-r border-slate-800 flex flex-col h-screen sticky top-0">
@@ -47,9 +50,23 @@ export default function Sidebar() {
         })}
       </nav>
 
-      {/* Footer */}
-      <div className="px-6 py-4 border-t border-slate-800">
-        <p className="text-xs text-slate-600">v0.1.0</p>
+      {/* Footer: user info + logout */}
+      <div className="px-3 py-4 border-t border-slate-800 space-y-2">
+        {user && (
+          <div className="px-3 py-2">
+            <p className="text-xs font-medium text-slate-300 truncate">
+              {user.full_name || user.email}
+            </p>
+            <p className="text-xs text-slate-600 truncate">{user.email}</p>
+          </div>
+        )}
+        <button
+          onClick={logout}
+          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors"
+        >
+          <LogOut className="w-4 h-4 shrink-0" />
+          Logout
+        </button>
       </div>
     </aside>
   );

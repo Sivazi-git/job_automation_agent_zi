@@ -9,14 +9,18 @@ load_dotenv()
 client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
 ATS_THRESHOLD = int(os.getenv("ATS_THRESHOLD", 60))
+# Haiku is ~20x cheaper than Sonnet and handles structured JSON tasks well.
+# Override with ATS_MODEL=claude-sonnet-4-6 if you need higher accuracy.
+ATS_MODEL = os.getenv("ATS_MODEL", "claude-haiku-4-5-20251001")
 
 
-def score_job(job_title: str, job_description: str) -> dict:
+def score_job(job_title: str, job_description: str, master_resume: dict = None) -> dict:
     """
     Scores how well the master resume matches a job description.
     Returns a dict with score (0-100) and reasoning breakdown.
+    If master_resume is not provided, loads from disk.
     """
-    master = load_master_resume()
+    master = master_resume if master_resume is not None else load_master_resume()
 
     prompt = f"""
     You are an ATS (Applicant Tracking System) evaluator.
@@ -58,7 +62,7 @@ def score_job(job_title: str, job_description: str) -> dict:
     """
 
     response = client.messages.create(
-        model="claude-sonnet-4-6",
+        model=ATS_MODEL,
         max_tokens=800,
         messages=[{"role": "user", "content": prompt}]
     )
@@ -76,10 +80,17 @@ def score_job(job_title: str, job_description: str) -> dict:
     return result
 
 
-def passes_ats(job_title: str, job_description: str) -> tuple[bool, dict]:
+def passes_ats(
+    job_title: str,
+    job_description: str,
+    master_resume: dict = None,
+    threshold: int = None,
+) -> tuple[bool, dict]:
     """
     Convenience wrapper. Returns (passes: bool, score_result: dict).
+    Uses per-user threshold if provided, else env var default.
     """
-    score_result = score_job(job_title, job_description)
-    passes = score_result.get("final_score", 0) >= ATS_THRESHOLD
+    score_result = score_job(job_title, job_description, master_resume=master_resume)
+    effective_threshold = threshold if threshold is not None else ATS_THRESHOLD
+    passes = score_result.get("final_score", 0) >= effective_threshold
     return passes, score_result

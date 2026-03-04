@@ -352,3 +352,7 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# Claude Code local overrides (personal, not shared)
+.claude/settings.local.json
+CLAUDE.local.md

@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
+import { ChevronLeft, ChevronRight, RefreshCw, LayoutList, LayoutGrid } from 'lucide-react';
 import JobsTable from '@/components/JobsTable';
+import JobsBoard from '@/components/JobsBoard';
 import { fetchJobs, type JobSummary } from '@/lib/api';
 
 const STATUS_TABS = [
@@ -16,6 +17,8 @@ const STATUS_TABS = [
 
 const PAGE_SIZE = 25;
 
+type ViewMode = 'table' | 'board';
+
 export default function JobsPage() {
   const [jobs, setJobs] = useState<JobSummary[]>([]);
   const [total, setTotal] = useState(0);
@@ -23,6 +26,7 @@ export default function JobsPage() {
   const [page, setPage] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [view, setView] = useState<ViewMode>('table');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -30,8 +34,8 @@ export default function JobsPage() {
     try {
       const data = await fetchJobs({
         status: status === 'all' ? undefined : status,
-        limit: PAGE_SIZE,
-        offset: page * PAGE_SIZE,
+        limit: view === 'board' ? 200 : PAGE_SIZE,
+        offset: view === 'board' ? 0 : page * PAGE_SIZE,
         sort: 'ats_score_desc',
       });
       setJobs(data.jobs);
@@ -41,7 +45,7 @@ export default function JobsPage() {
     } finally {
       setLoading(false);
     }
-  }, [status, page]);
+  }, [status, page, view]);
 
   useEffect(() => {
     load();
@@ -51,6 +55,11 @@ export default function JobsPage() {
 
   function handleTabChange(value: string) {
     setStatus(value);
+    setPage(0);
+  }
+
+  function handleViewChange(v: ViewMode) {
+    setView(v);
     setPage(0);
   }
 
@@ -64,13 +73,40 @@ export default function JobsPage() {
             {total.toLocaleString()} jobs total
           </p>
         </div>
-        <button
-          onClick={load}
-          className="p-2 rounded-lg border border-slate-700 hover:bg-slate-800 text-slate-400 hover:text-slate-100 transition-colors"
-          title="Refresh"
-        >
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-        </button>
+        <div className="flex items-center gap-2">
+          {/* View toggle */}
+          <div className="flex items-center gap-0.5 p-1 bg-slate-800 border border-slate-700 rounded-lg">
+            <button
+              onClick={() => handleViewChange('table')}
+              title="Table view"
+              className={`p-1.5 rounded transition-colors ${
+                view === 'table'
+                  ? 'bg-indigo-600 text-white'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <LayoutList className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => handleViewChange('board')}
+              title="Board view"
+              className={`p-1.5 rounded transition-colors ${
+                view === 'board'
+                  ? 'bg-indigo-600 text-white'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <LayoutGrid className="w-4 h-4" />
+            </button>
+          </div>
+          <button
+            onClick={load}
+            className="p-2 rounded-lg border border-slate-700 hover:bg-slate-800 text-slate-400 hover:text-slate-100 transition-colors"
+            title="Refresh"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
       </div>
 
       {/* Status filter tabs */}
@@ -97,17 +133,19 @@ export default function JobsPage() {
         </div>
       )}
 
-      {/* Table */}
+      {/* Content */}
       {loading ? (
         <div className="flex items-center justify-center h-48">
           <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-indigo-500" />
         </div>
+      ) : view === 'board' ? (
+        <JobsBoard jobs={jobs} />
       ) : (
         <JobsTable jobs={jobs} />
       )}
 
-      {/* Pagination */}
-      {!loading && totalPages > 1 && (
+      {/* Pagination — table view only */}
+      {!loading && view === 'table' && totalPages > 1 && (
         <div className="flex items-center justify-between text-sm text-slate-400">
           <span>
             Showing {page * PAGE_SIZE + 1}–

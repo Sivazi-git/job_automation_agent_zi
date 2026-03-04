@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+
+  "permissions": {
+    "allow": [
+      "Bash(uvicorn*)",
+      "Bash(uv add*)",
+      "Bash(uv run*)",
+      "Bash(npm run *)",
+      "Bash(npm install*)",
+      "Bash(npx tsc*)",
+      "Bash(npx prettier*)",
+      "Bash(.venv/Scripts/python.exe*)",
+      "Bash(.venv/Scripts/uvicorn.exe*)",
+      "Bash(git status)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git add*)",
+      "Bash(git commit*)"
+    ],
+    "deny": [
+      "Bash(curl*)",
+      "Bash(wget*)",
+      "Bash(rm -rf*)",
+      "Bash(git push --force*)"
+    ]
+  },
+
+  "model": "sonnet",
+
+  "effortLevel": "medium",
+
+  "env": {
+    "PYTHONDONTWRITEBYTECODE": "1",
+
+    "CLAUDE_CODE_SUBAGENT_MODEL": "haiku",
+
+    "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "70",
+
+    "DISABLE_TELEMETRY": "1",
+    "DISABLE_ERROR_REPORTING": "1",
+    "CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY": "1",
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"
+  },
+
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "backend/.venv/Scripts/python.exe .claude/hooks/inject_context.py"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "backend/.venv/Scripts/python.exe .claude/hooks/inject_context.py"
+          }
+        ]
+      }
+    ]
+  }
+}
