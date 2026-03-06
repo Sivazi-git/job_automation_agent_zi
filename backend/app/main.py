@@ -1,5 +1,13 @@
+from __future__ import annotations
+
+import asyncio
+import queue as _queue
+import threading
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Depends, HTTPException, Query, BackgroundTasks, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -11,12 +19,20 @@ from dotenv import load_dotenv
 
 from .database import get_db
 from .models.models import Job, Resume, Application, User
-from .auth import hash_password, verify_password, create_access_token
+from .auth import hash_password, verify_password, create_access_token, decode_access_token
 from .dependencies import get_current_user
+from . import pipeline_events
 
 load_dotenv()
 
-app = FastAPI(title="Job Application Agent", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    yield
+    # On shutdown: cancel all running pipelines so background threads exit
+    pipeline_events.cancel_all()
+
+app = FastAPI(title="Job Application Agent", version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -265,6 +281,7 @@ def get_stats(
     applied = db.query(func.count(Job.id)).filter(Job.user_id == uid, Job.status == "applied").scalar() or 0
     failed = db.query(func.count(Job.id)).filter(Job.user_id == uid, Job.status == "failed").scalar() or 0
     queued = db.query(func.count(Job.id)).filter(Job.user_id == uid, Job.status == "queued").scalar() or 0
+    needs_review = db.query(func.count(Job.id)).filter(Job.user_id == uid, Job.status == "needs_review").scalar() or 0
 
     return {
         "total": total,
@@ -273,6 +290,7 @@ def get_stats(
         "applied": applied,
         "failed": failed,
         "queued": queued,
+        "needs_review": needs_review,
     }
 
 
@@ -358,6 +376,8 @@ def get_job(
         "created_at": job.created_at.isoformat() if job.created_at else None,
         "resume_url": resume.file_url if resume else None,
         "applied_at": application.applied_at.isoformat() if application else None,
+        "screening_questions": job.screening_questions,
+        "apply_status_detail": job.apply_status_detail,
     }
 
 
@@ -401,6 +421,10 @@ async def run_pipeline(
     master_resume_data = current_user.master_resume_data
     ats_threshold = current_user.ats_threshold or 60
 
+    # Reset cancel flag and flush stale logs before the new run
+    pipeline_events.reset_pipeline(uid)
+    pipeline_events.emit(uid, f"Pipeline starting: '{search_term}' in '{location or 'anywhere'}'")
+
     def _execute():
         try:
             from .agents.graph import graph
@@ -417,6 +441,9 @@ async def run_pipeline(
                 "total_jobs": 0,
                 "processed_jobs": [],
                 "pipeline_complete": False,
+                "needs_human_review": False,
+                "review_reason": "",
+                "human_answers": {},
                 "retry_count": 0,
                 "error": None,
                 "error_node": None,
@@ -435,11 +462,16 @@ async def run_pipeline(
         except Exception as e:
             run_entry["status"] = "failed"
             run_entry["error"] = str(e)
+            pipeline_events.emit(uid, f"Pipeline error: {e}", level="error")
+            pipeline_events.emit_done(uid)
         finally:
             state["status"] = "idle"
             state["last_run_at"] = datetime.utcnow().isoformat()
 
-    background_tasks.add_task(_execute)
+    # Use a daemon thread so the thread is killed if the server process exits
+    t = threading.Thread(target=_execute, daemon=True, name=f"pipeline-{uid[:8]}")
+    t.start()
+
     return {
         "status": "started",
         "message": f"Pipeline started for '{search_term}' in '{location}'",
@@ -457,6 +489,427 @@ def get_pipeline_status(current_user: User = Depends(get_current_user)):
         "current_search": state["current_search"],
         "runs": state["runs"],
     }
+
+
+@app.post("/api/pipeline/stop")
+def stop_pipeline(current_user: User = Depends(get_current_user)):
+    uid = str(current_user.id)
+    pipeline_events.cancel_pipeline(uid)
+    state = _get_user_state(uid)
+    state["status"] = "idle"
+    return {"status": "stopping", "message": "Pipeline cancellation requested"}
+
+
+@app.get("/api/pipeline/logs")
+async def pipeline_logs(
+    token: str = Query(...),
+):
+    """
+    SSE endpoint for live pipeline logs.
+    Auth via ?token= query param because EventSource doesn't support headers.
+    """
+    import json as _json
+
+    try:
+        payload = decode_access_token(token)
+        uid = payload.get("sub")
+        if not uid:
+            raise ValueError("no sub")
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    log_q = pipeline_events.drain_logs(uid)
+
+    async def event_stream():
+        while True:
+            try:
+                entry = log_q.get_nowait()
+                if entry is None:
+                    # Sentinel — pipeline finished
+                    yield f"data: {_json.dumps({'done': True})}\n\n"
+                    return
+                yield f"data: {_json.dumps(entry)}\n\n"
+            except _queue.Empty:
+                # Keepalive every 0.3 s so the connection stays open
+                yield ": keepalive\n\n"
+                await asyncio.sleep(0.3)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+# ── Auto-apply routes ─────────────────────────────────────────────────────────
+
+@app.post("/api/jobs/{job_id}/generate-resume")
+async def generate_resume_for_job(
+    job_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Generate a tailored resume PDF for a specific job on demand."""
+    try:
+        job_uuid = uuid.UUID(job_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid job ID")
+
+    job = db.query(Job).filter(Job.id == job_uuid, Job.user_id == current_user.id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    master_data = current_user.master_resume_data
+    if not master_data:
+        raise HTTPException(status_code=422, detail="No master resume on file. Upload a resume first.")
+
+    try:
+        from .services.resume_tailor import tailor_resume as tailor_resume_llm
+        from .services.pdf_generator import generate_pdf as generate_pdf_file
+        from .services.storage import upload_resume_pdf
+        import json as _json
+
+        tailored = tailor_resume_llm(
+            job_title=job.title,
+            company=job.company,
+            job_description=job.description or "",
+        )
+        local_path = generate_pdf_file(tailored, job_id)
+        public_url = upload_resume_pdf(local_path, job_id)
+
+        resume_record = Resume(
+            user_id=current_user.id,
+            job_id=job_uuid,
+            file_url=public_url,
+            tailored_content=_json.dumps(tailored),
+        )
+        db.add(resume_record)
+        db.commit()
+        db.refresh(resume_record)
+
+        return {
+            "resume_id": str(resume_record.id),
+            "file_url": resume_record.file_url,
+            "tailored_content": resume_record.tailored_content,
+            "created_at": resume_record.created_at.isoformat() if resume_record.created_at else None,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Resume generation failed: {str(e)}")
+
+
+@app.get("/api/jobs/{job_id}/resume")
+def get_job_resume(
+    job_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return the latest tailored resume record for a job."""
+    try:
+        job_uuid = uuid.UUID(job_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid job ID")
+
+    job = db.query(Job).filter(Job.id == job_uuid, Job.user_id == current_user.id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    resume = (
+        db.query(Resume)
+        .filter(Resume.job_id == job_uuid, Resume.user_id == current_user.id)
+        .order_by(Resume.created_at.desc())
+        .first()
+    )
+    if not resume:
+        raise HTTPException(status_code=404, detail="No resume found for this job")
+
+    return {
+        "resume_id": str(resume.id),
+        "file_url": resume.file_url,
+        "tailored_content": resume.tailored_content,
+        "created_at": resume.created_at.isoformat() if resume.created_at else None,
+    }
+
+
+@app.post("/api/jobs/{job_id}/apply")
+async def apply_to_job_route(
+    job_id: str,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Trigger Playwright-based application for a specific job."""
+    try:
+        job_uuid = uuid.UUID(job_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid job ID")
+
+    job = db.query(Job).filter(Job.id == job_uuid, Job.user_id == current_user.id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    if job.status == "applied":
+        raise HTTPException(status_code=409, detail="Already applied to this job")
+
+    resume = (
+        db.query(Resume)
+        .filter(Resume.job_id == job_uuid, Resume.user_id == current_user.id)
+        .order_by(Resume.created_at.desc())
+        .first()
+    )
+    if not resume:
+        raise HTTPException(status_code=422, detail="Generate a resume for this job first")
+
+    # Gather user data for the applier
+    import json as _json
+    tailored_data: dict = {}
+    try:
+        tailored_data = _json.loads(resume.tailored_content or "{}")
+    except Exception:
+        pass
+
+    user_data = {
+        "full_name":     current_user.full_name or "",
+        "email":         current_user.email,
+        "phone":         current_user.phone or "",
+        "linkedin_url":  current_user.linkedin_url or "",
+        "github_url":    current_user.github_url or "",
+        "portfolio_url": current_user.portfolio_url or "",
+    }
+
+    uid = str(current_user.id)
+
+    def _run_apply():
+        import asyncio
+        from .services.job_applier import apply_to_job as _apply
+        from .services.screening_answerer import answer_questions
+        from .database import SessionLocal as _SL
+        from .models.models import Job as _Job
+
+        _db = _SL()
+        try:
+            _job = _db.query(_Job).filter(_Job.id == job_uuid).first()
+            if not _job:
+                return
+
+            # Get local PDF path — try temp dir convention used by pdf_generator
+            import tempfile, os
+            local_path = os.path.join(tempfile.gettempdir(), f"resume_{job_id}.pdf")
+
+            result = asyncio.run(_apply(
+                job_url=str(_job.url),
+                resume_pdf_path=local_path,
+                user_data=user_data,
+            ))
+
+            if result.status == "failed":
+                _job.status = "failed"
+                _job.apply_status_detail = result.error
+                _db.commit()
+                return
+
+            if result.status == "needs_screening":
+                questions_raw = result.screening_questions
+                # Ask Claude to draft answers
+                answers = answer_questions(
+                    questions=questions_raw,
+                    tailored_resume=tailored_data,
+                    job_title=_job.title,
+                    company=_job.company,
+                )
+                enriched = []
+                for q_text in questions_raw:
+                    matched = next((a for a in answers if a["question"] == q_text), None)
+                    conf = float(matched["confidence"]) if matched else 0.0
+                    enriched.append({
+                        "question":     q_text,
+                        "claude_answer": matched["answer"] if matched else "",
+                        "confidence":   conf,
+                        "needs_review": conf < 0.75,
+                    })
+
+                needs_review = any(q["needs_review"] for q in enriched)
+                _job.screening_questions = enriched
+                _job.status = "needs_review" if needs_review else "queued"
+                _db.commit()
+                return
+
+            # Applied successfully
+            _job.status = "applied"
+            _job.apply_status_detail = None
+            _db.commit()
+
+            from .models.models import Application as _App
+            app_record = _App(
+                user_id=_job.user_id,
+                job_id=_job.id,
+                resume_id=resume.id,
+                status="applied",
+            )
+            _db.add(app_record)
+            _db.commit()
+
+        except Exception as e:
+            _db.rollback()
+            try:
+                _job2 = _db.query(_Job).filter(_Job.id == job_uuid).first()
+                if _job2:
+                    _job2.status = "failed"
+                    _job2.apply_status_detail = str(e)
+                    _db.commit()
+            except Exception:
+                pass
+        finally:
+            _db.close()
+
+    # Set to queued immediately so UI can show progress
+    job.status = "queued"
+    db.commit()
+
+    background_tasks.add_task(_run_apply)
+    return {"status": "started", "message": "Application process started in the background"}
+
+
+@app.get("/api/jobs/{job_id}/screening")
+def get_screening_questions(
+    job_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return screening questions for human review."""
+    try:
+        job_uuid = uuid.UUID(job_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid job ID")
+
+    job = db.query(Job).filter(Job.id == job_uuid, Job.user_id == current_user.id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    return {"questions": job.screening_questions or []}
+
+
+@app.post("/api/jobs/{job_id}/screening-answers")
+async def submit_screening_answers(
+    job_id: str,
+    payload: dict,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    User submits human-reviewed answers.
+    Merges them into the job's screening_questions and re-runs the apply step.
+    """
+    try:
+        job_uuid = uuid.UUID(job_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid job ID")
+
+    job = db.query(Job).filter(Job.id == job_uuid, Job.user_id == current_user.id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    answers: dict = payload.get("answers", {})
+    if not answers:
+        raise HTTPException(status_code=422, detail="No answers provided")
+
+    # Merge human answers into stored screening_questions
+    existing_qs = list(job.screening_questions or [])
+    for q in existing_qs:
+        text = q.get("question", "")
+        if text in answers:
+            q["claude_answer"] = answers[text]
+            q["confidence"] = 1.0
+            q["needs_review"] = False
+
+    job.screening_questions = existing_qs
+
+    resume = (
+        db.query(Resume)
+        .filter(Resume.job_id == job_uuid, Resume.user_id == current_user.id)
+        .order_by(Resume.created_at.desc())
+        .first()
+    )
+
+    user_data = {
+        "full_name":     current_user.full_name or "",
+        "email":         current_user.email,
+        "phone":         current_user.phone or "",
+        "linkedin_url":  current_user.linkedin_url or "",
+        "github_url":    current_user.github_url or "",
+        "portfolio_url": current_user.portfolio_url or "",
+    }
+
+    job.status = "queued"
+    db.commit()
+
+    import json as _json
+    tailored_data: dict = {}
+    try:
+        if resume:
+            tailored_data = _json.loads(resume.tailored_content or "{}")
+    except Exception:
+        pass
+
+    saved_qs = list(existing_qs)
+
+    def _reapply():
+        import asyncio, os, tempfile
+        from .services.job_applier import apply_to_job as _apply
+        from .database import SessionLocal as _SL
+        from .models.models import Job as _Job, Application as _App
+
+        _db = _SL()
+        try:
+            _job = _db.query(_Job).filter(_Job.id == job_uuid).first()
+            if not _job:
+                return
+
+            local_path = os.path.join(tempfile.gettempdir(), f"resume_{job_id}.pdf")
+            result = asyncio.run(_apply(
+                job_url=str(_job.url),
+                resume_pdf_path=local_path,
+                user_data=user_data,
+            ))
+
+            if result.status == "failed":
+                _job.status = "failed"
+                _job.apply_status_detail = result.error
+                _db.commit()
+                return
+
+            _job.status = "applied"
+            _job.apply_status_detail = None
+            _db.commit()
+
+            app_record = _App(
+                user_id=_job.user_id,
+                job_id=_job.id,
+                resume_id=resume.id if resume else None,
+                status="applied",
+            )
+            _db.add(app_record)
+            _db.commit()
+
+        except Exception as e:
+            _db.rollback()
+            try:
+                _job2 = _db.query(_Job).filter(_Job.id == job_uuid).first()
+                if _job2:
+                    _job2.status = "failed"
+                    _job2.apply_status_detail = str(e)
+                    _db.commit()
+            except Exception:
+                pass
+        finally:
+            _db.close()
+
+    background_tasks.add_task(_reapply)
+    return {"status": "started", "message": "Re-applying with your answers"}
 
 
 @app.delete("/api/admin/cleanup-low-ats")

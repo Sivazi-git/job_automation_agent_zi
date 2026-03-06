@@ -11,6 +11,7 @@ const STATUS_TABS = [
   { label: 'New', value: 'new' },
   { label: 'Queued', value: 'queued' },
   { label: 'Applied', value: 'applied' },
+  { label: 'Review', value: 'needs_review' },
   { label: 'Filtered', value: 'skipped' },
   { label: 'Failed', value: 'failed' },
 ];

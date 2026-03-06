@@ -38,12 +38,17 @@ class AgentState(TypedDict):
     resume_id: str                   # DB record ID after saving
 
     # --- Application ---
-    application_status: str          # applied, failed, skipped, pending_review
+    application_status: str          # applied, failed, skipped, needs_review
     applied_at: Optional[str]        # ISO timestamp
 
     # --- Screening Q&A ---
-    screening_questions: list[str]   # extracted from application form
+    screening_questions: list[dict]  # [{question, claude_answer, confidence, needs_review}]
     screening_answers: list[dict]    # [{question: str, answer: str}]
+
+    # --- Human-in-the-loop review ---
+    needs_human_review: bool         # True → pause pipeline, set job to needs_review
+    review_reason: str               # explanation shown in UI
+    human_answers: dict              # {question_text: answer_text} submitted by user
 
     # --- Pipeline Summary ---
     processed_jobs: list[dict]       # log of all processed jobs with their outcomes

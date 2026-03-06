@@ -50,6 +50,11 @@ class Job(Base):
     ats_matched_keywords  = Column(JSONB, nullable=True)
     ats_missing_keywords  = Column(JSONB, nullable=True)
 
+    # Auto-apply fields
+    # status: new|queued|applied|failed|skipped|needs_review
+    screening_questions  = Column(JSONB, nullable=True)   # [{question, claude_answer, confidence, needs_review}]
+    apply_status_detail  = Column(Text, nullable=True)    # last apply error or detail message
+
 
 class Resume(Base):
     __tablename__ = "resumes"

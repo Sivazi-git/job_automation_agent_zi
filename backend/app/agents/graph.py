@@ -77,14 +77,15 @@ def route_after_apply(state: AgentState) -> str:
 def route_after_screening(state: AgentState) -> str:
     if state.get("error"):
         return "handle_failure"
+    # needs_human_review → job is paused at needs_review; still advance the batch
     return "record_and_advance"
 
 def route_after_advance(state: AgentState) -> str:
     """
     Core loop decision: if there are more jobs, go back.
-    If batch is done, go to summary.
+    If batch is done or cancelled, go to summary.
     """
-    if state.get("pipeline_complete"):
+    if state.get("pipeline_complete") or state.get("error_node") == "cancelled":
         return "print_summary"
     return "load_current_job"
 

@@ -1,12 +1,19 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, ExternalLink, FileText, Calendar } from 'lucide-react';
+import {
+  ArrowLeft, ExternalLink, FileText, Calendar, Download,
+  RefreshCw, Send, ChevronDown, ChevronUp,
+} from 'lucide-react';
 import StatusBadge from '@/components/StatusBadge';
 import ATSBreakdown from '@/components/ATSBreakdown';
 import KeywordTags from '@/components/KeywordTags';
-import { fetchJob, type JobDetail } from '@/lib/api';
+import ScreeningForm from '@/components/ScreeningForm';
+import {
+  fetchJob, generateJobResume, getJobResume, applyToJob,
+  type JobDetail, type ResumeRecord,
+} from '@/lib/api';
 import JobDescription from '@/components/JobDescription';
 
 const sourceColors: Record<string, string> = {
@@ -29,19 +36,67 @@ export default function JobDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    async function load() {
-      try {
-        const data = await fetchJob(id);
-        setJob(data);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : 'Failed to load job');
-      } finally {
-        setLoading(false);
-      }
+  // Resume state
+  const [resume, setResume] = useState<ResumeRecord | null>(null);
+  const [resumeLoading, setResumeLoading] = useState(false);
+  const [resumeError, setResumeError] = useState<string | null>(null);
+  const [resumeExpanded, setResumeExpanded] = useState(false);
+
+  // Apply state
+  const [applying, setApplying] = useState(false);
+  const [applyError, setApplyError] = useState<string | null>(null);
+
+  const loadJob = useCallback(async () => {
+    try {
+      const data = await fetchJob(id);
+      setJob(data);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load job');
+    } finally {
+      setLoading(false);
     }
-    load();
   }, [id]);
+
+  const loadResume = useCallback(async () => {
+    try {
+      const r = await getJobResume(id);
+      setResume(r);
+    } catch {
+      // 404 is fine — no resume yet
+    }
+  }, [id]);
+
+  useEffect(() => {
+    loadJob();
+    loadResume();
+  }, [loadJob, loadResume]);
+
+  async function handleGenerateResume() {
+    setResumeLoading(true);
+    setResumeError(null);
+    try {
+      const r = await generateJobResume(id);
+      setResume(r);
+    } catch (e) {
+      setResumeError(e instanceof Error ? e.message : 'Failed to generate resume');
+    } finally {
+      setResumeLoading(false);
+    }
+  }
+
+  async function handleApply() {
+    setApplying(true);
+    setApplyError(null);
+    try {
+      await applyToJob(id);
+      // Reload job after a short delay to reflect queued status
+      setTimeout(() => loadJob(), 1500);
+    } catch (e) {
+      setApplyError(e instanceof Error ? e.message : 'Apply failed');
+    } finally {
+      setApplying(false);
+    }
+  }
 
   if (loading) {
     return (
@@ -167,6 +222,139 @@ export default function JobDetailPage() {
           <KeywordTags
             matched={job.ats_matched_keywords ?? []}
             missing={job.ats_missing_keywords ?? []}
+          />
+        </div>
+      )}
+
+      {/* Resume */}
+      <div className="bg-slate-800 border border-slate-700 rounded-xl p-6 space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-base font-semibold text-slate-100">Tailored Resume</h2>
+          {resume && (
+            <button
+              onClick={handleGenerateResume}
+              disabled={resumeLoading}
+              className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 disabled:opacity-50 transition-colors"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${resumeLoading ? 'animate-spin' : ''}`} />
+              Regenerate
+            </button>
+          )}
+        </div>
+
+        {resumeError && (
+          <div className="rounded-xl bg-red-900/20 border border-red-800/50 p-3 text-red-400 text-sm">
+            {resumeError}
+          </div>
+        )}
+
+        {!resume && !resumeLoading && (
+          <button
+            onClick={handleGenerateResume}
+            disabled={resumeLoading}
+            className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm font-medium rounded-lg px-4 py-2.5 transition-colors"
+          >
+            Generate Resume
+          </button>
+        )}
+
+        {resumeLoading && !resume && (
+          <div className="flex items-center gap-2 text-sm text-slate-400">
+            <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-indigo-500" />
+            Generating tailored resume…
+          </div>
+        )}
+
+        {resume && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <p className="text-xs text-slate-500">
+                Generated {resume.created_at ? new Date(resume.created_at).toLocaleDateString() : '—'}
+              </p>
+              {resume.file_url && (
+                <a
+                  href={resume.file_url}
+                  download
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg transition-colors"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  Download PDF
+                </a>
+              )}
+            </div>
+
+            {resume.tailored_content && (
+              <div>
+                <button
+                  onClick={() => setResumeExpanded((v) => !v)}
+                  className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 transition-colors"
+                >
+                  {resumeExpanded ? (
+                    <ChevronUp className="w-3.5 h-3.5" />
+                  ) : (
+                    <ChevronDown className="w-3.5 h-3.5" />
+                  )}
+                  {resumeExpanded ? 'Hide' : 'Preview'} tailored content
+                </button>
+                {resumeExpanded && (
+                  <pre className="mt-2 p-3 rounded-lg bg-slate-900 text-xs text-slate-400 overflow-x-auto max-h-64 overflow-y-auto">
+                    {(() => {
+                      try {
+                        return JSON.stringify(JSON.parse(resume.tailored_content), null, 2);
+                      } catch {
+                        return resume.tailored_content;
+                      }
+                    })()}
+                  </pre>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Apply */}
+      {job.status !== 'applied' && resume && (
+        <div className="bg-slate-800 border border-slate-700 rounded-xl p-6 space-y-3">
+          <h2 className="text-base font-semibold text-slate-100">Apply</h2>
+          {applyError && (
+            <div className="rounded-xl bg-red-900/20 border border-red-800/50 p-3 text-red-400 text-sm">
+              {applyError}
+            </div>
+          )}
+          {job.apply_status_detail && (
+            <p className="text-xs text-slate-500">{job.apply_status_detail}</p>
+          )}
+          <button
+            onClick={handleApply}
+            disabled={applying || job.status === 'queued'}
+            className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg px-4 py-2.5 transition-colors"
+          >
+            <Send className="w-4 h-4" />
+            {applying
+              ? 'Starting…'
+              : job.status === 'queued'
+              ? 'Applying…'
+              : 'Apply Now'}
+          </button>
+        </div>
+      )}
+
+      {/* Screening review */}
+      {job.status === 'needs_review' && job.screening_questions && job.screening_questions.length > 0 && (
+        <div className="bg-slate-800 border border-amber-700/40 rounded-xl p-6 space-y-4">
+          <div>
+            <h2 className="text-base font-semibold text-amber-300">Screening Questions — Review Required</h2>
+            <p className="text-xs text-slate-500 mt-1">
+              Claude drafted answers below. Highlighted questions have low confidence — please review before submitting.
+            </p>
+          </div>
+          <ScreeningForm
+            jobId={id}
+            questions={job.screening_questions}
+            onSubmit={() => {
+              loadJob();
+            }}
           />
         </div>
       )}
