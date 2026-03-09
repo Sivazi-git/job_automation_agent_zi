@@ -292,6 +292,9 @@ export default function PipelinePanel() {
   }
 
   const isRunning = pipelineStatus?.status === 'in_progress';
+  const runsRemaining = pipelineStatus?.runs_remaining ?? 3;
+  const dailyLimit = pipelineStatus?.daily_limit ?? 3;
+  const limitReached = runsRemaining === 0;
 
   return (
     <div className="space-y-6">
@@ -319,6 +322,24 @@ export default function PipelinePanel() {
             )}
           </div>
         </div>
+
+        {/* Daily run counter */}
+        {!isRunning && (
+          <div className="flex items-center gap-1.5">
+            {Array.from({ length: dailyLimit }).map((_, i) => (
+              <span
+                key={i}
+                className={cn(
+                  'w-2.5 h-2.5 rounded-full',
+                  i < runsRemaining ? 'bg-indigo-500' : 'bg-slate-600'
+                )}
+              />
+            ))}
+            <span className={cn('text-xs ml-1', limitReached ? 'text-red-400' : 'text-slate-400')}>
+              {limitReached ? 'Limit reached' : `${runsRemaining}/${dailyLimit} runs left`}
+            </span>
+          </div>
+        )}
 
         {/* Stop button — only when running */}
         {isRunning && (
@@ -398,7 +419,14 @@ export default function PipelinePanel() {
           </button>
         </div>
 
-        {formError && (
+        {limitReached && (
+          <div className="flex items-center gap-2 text-sm text-amber-400 bg-amber-900/20 border border-amber-800/40 rounded-lg px-3 py-2.5">
+            <XCircle className="w-4 h-4 shrink-0" />
+            Daily limit reached ({dailyLimit} runs/day). Resets at midnight UTC.
+          </div>
+        )}
+
+        {formError && !limitReached && (
           <div className="flex items-center gap-2 text-sm text-red-400">
             <XCircle className="w-4 h-4 shrink-0" />
             {formError}
@@ -407,7 +435,7 @@ export default function PipelinePanel() {
 
         <button
           onClick={handleRun}
-          disabled={loading || isRunning}
+          disabled={loading || isRunning || limitReached}
           className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-700 disabled:text-slate-500 disabled:cursor-not-allowed text-white rounded-lg text-sm font-semibold transition-colors"
         >
           {loading ? (

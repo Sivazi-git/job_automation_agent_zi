@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import Optional
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from dotenv import load_dotenv
 
@@ -46,6 +46,9 @@ app.add_middleware(
 user_pipeline_states: dict[str, dict] = {}
 
 
+DAILY_RUN_LIMIT = 3
+
+
 def _get_user_state(user_id: str) -> dict:
     if user_id not in user_pipeline_states:
         user_pipeline_states[user_id] = {
@@ -54,8 +57,18 @@ def _get_user_state(user_id: str) -> dict:
             "current_search": None,
             "processed": 0,
             "runs": [],
+            "runs_today": 0,
+            "runs_reset_date": datetime.now(timezone.utc).date().isoformat(),
         }
     return user_pipeline_states[user_id]
+
+
+def _refresh_daily_counter(state: dict) -> None:
+    """Reset runs_today if the UTC date has rolled over."""
+    today = datetime.now(timezone.utc).date().isoformat()
+    if state.get("runs_reset_date") != today:
+        state["runs_today"] = 0
+        state["runs_reset_date"] = today
 
 
 @app.get("/")
@@ -395,6 +408,10 @@ async def run_pipeline(
     if state["status"] == "in_progress":
         return {"error": "Pipeline already running"}
 
+    _refresh_daily_counter(state)
+    if state["runs_today"] >= DAILY_RUN_LIMIT:
+        return {"error": f"Daily limit reached. You can run the pipeline {DAILY_RUN_LIMIT} times per day."}
+
     search_term = payload.get("search_term", "")
     location = payload.get("location", "")
     should_apply = payload.get("should_apply", False)
@@ -414,6 +431,7 @@ async def run_pipeline(
     state["status"] = "in_progress"
     state["current_search"] = search_term
     state["processed"] = 0
+    state["runs_today"] = state.get("runs_today", 0) + 1
     state["runs"].insert(0, run_entry)
     state["runs"] = state["runs"][:5]
 
@@ -482,12 +500,17 @@ async def run_pipeline(
 def get_pipeline_status(current_user: User = Depends(get_current_user)):
     uid = str(current_user.id)
     state = _get_user_state(uid)
+    _refresh_daily_counter(state)
+    runs_today = state.get("runs_today", 0)
     return {
         "status": state["status"],
         "last_run_at": state["last_run_at"],
         "processed": state["processed"],
         "current_search": state["current_search"],
         "runs": state["runs"],
+        "runs_today": runs_today,
+        "runs_remaining": max(0, DAILY_RUN_LIMIT - runs_today),
+        "daily_limit": DAILY_RUN_LIMIT,
     }
 
 
